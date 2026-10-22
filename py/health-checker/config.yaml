@@ -1,0 +1,13 @@
+targets:
+  - url: https://www.baidu.com
+    timeout: 5
+  - url: https://www.google.com
+    timeout: 10
+  - url: https://github.com
+    timeout: 10
+
+defaults:
+  timeout: 10
+  max_retries: 3
+  mode: concurrent
+  max_workers: 5
