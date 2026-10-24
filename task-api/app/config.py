@@ -13,9 +13,11 @@ class Settings:
     db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", "task_api"))
 
-    redis_host: str = field(default_factory=lambda: os.getenv("REDIS_HOST", "127.0.0.1"))
-    redis_port: int = field(default_factory=lambda: int(os.getenv("REDIS_PORT", "6379")))
-    redis_db: int = field(default_factory=lambda: int(os.getenv("REDIS_DB", "0")))
+    redis_nodes: str = field(
+        default_factory=lambda: os.getenv(
+            "REDIS_NODES", "127.0.0.1:6379"
+        )
+    )
 
     app_host: str = "0.0.0.0"
     app_port: int = 8000
@@ -24,6 +26,16 @@ class Settings:
     @property
     def database_url(self) -> str:
         return f"mysql+aiomysql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+
+    @property
+    def redis_cluster_nodes(self) -> list[tuple[str, int]]:
+        nodes = []
+        for node in self.redis_nodes.split(","):
+            node = node.strip()
+            if ":" in node:
+                host, port = node.split(":")
+                nodes.append((host, int(port)))
+        return nodes
 
 
 settings = Settings()
