@@ -590,36 +590,36 @@ ping tomcat82
 # docker-compose容器编排
 
 ```
-# 启动所有docker-compose服务
-docker-compose up
+# 启动所有docker compose服务
+docker compose up
 # -d 后台运行
 
 # 停止并删除容器、网络、卷、镜像
-docker-compose down
+docker compose down
 
 # 进入容器实例内部 docker-compose exec docker-compose.yml文件中写的服务id /bin/bash
-docker-compose exec yml里面的服务id
+docker compose exec yml里面的服务id
 
 # 展示当前docker-compose编排多的运行的所有容器
-docker-compose ps
+docker compose ps
 
 # 展示当前docker-compose编排过的容器进程
-docker-compose top
+docker compose top
 
 # 查看容器输出日志
-docker-compose logs yml里面的服务id
+docker compose logs yml里面的服务id
 
 # 检查配置 -q有问题才输出
-docker-compose config
+docker compose config
 
 # 重启服务
-docker-compose restart
+docker compose restart
 
 # 启动服务
-docker-compose start
+docker compose start
 
 # 停止服务
-docker-compose stop
+docker compose stop
 ```
 
 # 轻量级可视化工具portainer

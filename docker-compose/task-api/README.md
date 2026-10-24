@@ -61,17 +61,17 @@ docker-compose/task-api/
 
 ```bash
 cd docker-compose/task-api
-docker-compose up -d
+docker compose up -d
 ```
 
 等待所有服务健康检查通过（约 30-60 秒）：
 
 ```bash
 # 查看容器状态
-docker-compose ps
+docker compose ps
 
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### 2. 初始化 MySQL 主从复制
