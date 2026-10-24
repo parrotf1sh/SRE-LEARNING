@@ -3,18 +3,18 @@
 # 等待所有 Redis 节点就绪
 echo "Waiting for Redis nodes to be ready..."
 for port in 6379 6380 6381 6382 6383 6384; do
-    until redis-cli -h redis-node-$(($port - 6378)) -p $port ping | grep -q PONG; do
-        echo "Waiting for redis-node-$(($port - 6378)):$port..."
+    node_num=$(($port - 6378))
+    until docker exec redis-node-$node_num redis-cli -p $port ping | grep -q PONG; do
+        echo "Waiting for redis-node-$node_num:$port..."
         sleep 2
     done
-    echo "redis-node-$(($port - 6378)):$port is ready"
+    echo "redis-node-$node_num:$port is ready"
 done
 
 echo "All Redis nodes are ready. Creating cluster..."
 
-# 创建集群：3 主 3 从
-# --cluster-replicas 1 表示每个 master 配 1 个 slave
-redis-cli --cluster create \
+# 在 redis-node-1 容器内创建集群
+docker exec -it redis-node-1 redis-cli --cluster create \
     redis-node-1:6379 \
     redis-node-2:6380 \
     redis-node-3:6381 \
@@ -27,5 +27,8 @@ redis-cli --cluster create \
 echo "Redis cluster created successfully!"
 
 # 验证集群状态
-redis-cli -h redis-node-1 -p 6379 cluster info
-redis-cli -h redis-node-1 -p 6379 cluster nodes
+echo "Cluster info:"
+docker exec redis-node-1 redis-cli -p 6379 cluster info | grep cluster_state
+
+echo "Cluster nodes:"
+docker exec redis-node-1 redis-cli -p 6379 cluster nodes

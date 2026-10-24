@@ -14,7 +14,6 @@ async def init_redis():
     redis_client = RedisCluster(
         startup_nodes=nodes,
         decode_responses=True,
-        skip_full_coverage_check=True,
     )
     await redis_client.initialize()
 
