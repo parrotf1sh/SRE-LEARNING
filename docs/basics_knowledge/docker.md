@@ -594,8 +594,9 @@ ping tomcat82
 docker compose up
 # -d 后台运行
 
-# 停止并删除容器、网络、卷、镜像
+# 停止并删除容器、网络
 docker compose down
+-v 删除数据卷
 
 # 进入容器实例内部 docker-compose exec docker-compose.yml文件中写的服务id /bin/bash
 docker compose exec yml里面的服务id
