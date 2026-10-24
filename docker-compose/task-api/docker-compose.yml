@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ============ MySQL 主从集群 ============
   mysql-master:
