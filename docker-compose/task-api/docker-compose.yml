@@ -1,0 +1,195 @@
+version: '3.8'
+
+services:
+  # ============ MySQL 主从集群 ============
+  mysql-master:
+    image: mysql:8.0
+    container_name: mysql-master
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: task_api
+    volumes:
+      - mysql_master_data:/var/lib/mysql
+      - ./mysql/master/my.cnf:/etc/mysql/conf.d/my.cnf
+      - ./mysql/master/init-repl.sql:/docker-entrypoint-initdb.d/init-repl.sql
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-slave:
+    image: mysql:8.0
+    container_name: mysql-slave
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - mysql_slave_data:/var/lib/mysql
+      - ./mysql/slave/my.cnf:/etc/mysql/conf.d/my.cnf
+    networks:
+      - task-api-network
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ Redis Cluster (3主3从) ============
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-node-1
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node1_data:/data
+      - ./redis/node1/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-node-2
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node2_data:/data
+      - ./redis/node2/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-node-3
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node3_data:/data
+      - ./redis/node3/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6381", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: redis-node-4
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node4_data:/data
+      - ./redis/node4/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6382", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: redis-node-5
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node5_data:/data
+      - ./redis/node5/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6383", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: redis-node-6
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_node6_data:/data
+      - ./redis/node6/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - task-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6384", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ 后端任务管理 API ============
+  task-api:
+    build:
+      context: ../../task-api
+      dockerfile: ../docker/task-api/Dockerfile
+    container_name: task-api
+    environment:
+      DB_HOST: mysql-master
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root_password
+      DB_NAME: task_api
+      REDIS_NODES: redis-node-1:6379,redis-node-2:6380,redis-node-3:6381,redis-node-4:6382,redis-node-5:6383,redis-node-6:6384
+    networks:
+      - task-api-network
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+      redis-node-1:
+        condition: service_healthy
+      redis-node-2:
+        condition: service_healthy
+      redis-node-3:
+        condition: service_healthy
+      redis-node-4:
+        condition: service_healthy
+      redis-node-5:
+        condition: service_healthy
+      redis-node-6:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ Nginx 反向代理 ============
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - task-api-network
+    depends_on:
+      task-api:
+        condition: service_healthy
+
+networks:
+  task-api-network:
+    driver: bridge
+
+volumes:
+  mysql_master_data:
+  mysql_slave_data:
+  redis_node1_data:
+  redis_node2_data:
+  redis_node3_data:
+  redis_node4_data:
+  redis_node5_data:
+  redis_node6_data:

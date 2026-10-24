@@ -1,18 +1,22 @@
 import redis.asyncio as aioredis
+from redis.asyncio.cluster import RedisCluster, ClusterNode
 from app.config import settings
 
-redis_client: aioredis.Redis | None = None
+redis_client: RedisCluster | None = None
 
 
 async def init_redis():
     global redis_client
-    redis_client = aioredis.Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        db=settings.redis_db,
+    nodes = [
+        ClusterNode(host=host, port=port)
+        for host, port in settings.redis_cluster_nodes
+    ]
+    redis_client = RedisCluster(
+        startup_nodes=nodes,
         decode_responses=True,
+        skip_full_coverage_check=True,
     )
-    await redis_client.ping()
+    await redis_client.initialize()
 
 
 async def close_redis():
