@@ -79,7 +79,7 @@ docker compose logs -f
 所有容器启动后，执行主从复制初始化脚本：
 
 ```bash
-./mysql/init-replication.sh
+MYSQL_ROOT_PASSWORD=your_password ./mysql/init-replication.sh
 ```
 
 验证主从状态：
