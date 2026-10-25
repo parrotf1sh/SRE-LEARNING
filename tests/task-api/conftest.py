@@ -8,16 +8,23 @@ This file provides reusable fixtures for:
 """
 import sys
 from pathlib import Path
+from unittest.mock import patch, AsyncMock
 
 # Add task-api to Python path so we can import app modules
 task_api_root = Path(__file__).parent.parent.parent / "task-api"
 sys.path.insert(0, str(task_api_root))
 
+# 在 lifespan 触发前，把真实数据库/Redis 初始化替换为 no-op
+# 测试使用 fixture 注入的 in-memory SQLite 和 fakeredis
+patch("app.main.init_db", new=AsyncMock()).start()
+patch("app.main.init_redis", new=AsyncMock()).start()
+patch("app.main.close_db", new=AsyncMock()).start()
+patch("app.main.close_redis", new=AsyncMock()).start()
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from unittest.mock import patch
 import fakeredis
 
 from app.database import Base, get_db
