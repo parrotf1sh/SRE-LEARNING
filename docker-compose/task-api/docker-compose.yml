@@ -130,6 +130,7 @@ services:
 
   # ============ 后端任务管理 API ============
   task-api:
+    image: task-api:${TASK_API_VERSION:-latest}
     build:
       context: ../../task-api
       dockerfile: ../docker/task-api/Dockerfile
