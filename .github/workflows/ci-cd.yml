@@ -13,6 +13,11 @@ on:
 
 env:
   IMAGE_NAME: task-api
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write   # 推送镜像到 ghcr.io 所需权限
 
 jobs:
   # ──────────────────────────────────────────
@@ -57,19 +62,19 @@ jobs:
         id: meta
         run: |
           SHA_TAG="dev-$(echo ${{ github.sha }} | cut -c1-7)"
-          IMAGE_FULL="${{ secrets.TCR_REGISTRY }}/${{ secrets.TCR_NAMESPACE }}/${IMAGE_NAME}"
+          IMAGE_FULL="${REGISTRY}/${{ github.repository_owner }}/${IMAGE_NAME}"
           echo "sha_tag=${SHA_TAG}"       >> "$GITHUB_OUTPUT"
           echo "image_full=${IMAGE_FULL}"  >> "$GITHUB_OUTPUT"
 
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 登录腾讯云镜像仓库
+      - name: 登录 GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.TCR_REGISTRY }}
-          username: ${{ secrets.TCR_USERNAME }}
-          password: ${{ secrets.TCR_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 构建镜像（不推送，用于先扫描）
         uses: docker/build-push-action@v6
@@ -94,8 +99,8 @@ jobs:
           severity: 'CRITICAL'
           ignore-unfixed: true
 
-      # ── 推送到 TCR ────────────────────────────────────
-      - name: 推送镜像到腾讯云 TCR
+      # ── 推送到 ghcr.io ────────────────────────────────
+      - name: 推送镜像到 GitHub Container Registry
         run: |
           docker push ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
           docker push ${{ steps.meta.outputs.image_full }}:dev-latest
