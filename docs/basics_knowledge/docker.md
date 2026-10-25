@@ -636,3 +636,49 @@ portainer/portainer
 
 # CAdvisor监控收集+InfluxDB存储数据+Grafana图形化
 
+
+
+
+
+# 日志切割轮转
+
+1）docker日志驱动:不适合多节点/集群
+
+```
+在 docker-compose.yml 中配置：
+services:
+  task-api:
+    # ... 其他配置
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"    # 单个日志文件最大 100MB
+        max-file: "3"       # 保留 3 个文件（当前 + 2 个历史）
+```
+
+2)应用层日志轮转
+
+```
+logging_config.py
+
+from logging.handlers import RotatingFileHandler
+
+handler = RotatingFileHandler(
+    filename="/var/log/task-api/app.log",
+    maxBytes=100 * 1024 * 1024,  # 100MB
+    backupCount=5,                # 保留 5 个备份
+    encoding='utf-8'
+)
+```
+
+3)集中式日志系统
+
+```
+容器 → Filebeat/Fluentd → Elasticsearch/Kafka → Kibana/Dashboard
+
+常用工具：
+ELK Stack：Elasticsearch + Logstash + Kibana
+EFK Stack：Elasticsearch + Fluentd + Kibana
+Loki + Grafana：轻量级，适合 K8s
+```
+

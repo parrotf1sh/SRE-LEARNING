@@ -2,6 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# 更换为清华大学镜像源，加速 apt 安装
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
 COPY requirements.txt .
