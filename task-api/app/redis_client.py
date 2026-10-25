@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import redis.asyncio as aioredis
 from redis.asyncio.cluster import RedisCluster, ClusterNode
 from app.config import settings
