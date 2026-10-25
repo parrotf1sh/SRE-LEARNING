@@ -39,20 +39,50 @@ async def request_logging_middleware(request: Request, call_next: RequestRespons
                 },
             )
     else:
-        log_level = logging.INFO if status_code < 400 else logging.WARNING if status_code < 500 else logging.ERROR
-        getattr(logger, log_level)(
-            "%s %s %s (%.2fms)",
-            request.method,
-            path,
-            status_code,
-            duration_ms,
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": path,
-                "status_code": status_code,
-                "duration_ms": duration_ms,
-            },
-        )
+        if status_code < 400:
+            logger.info(
+                "%s %s %s (%.2fms)",
+                request.method,
+                path,
+                status_code,
+                duration_ms,
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": path,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
+        elif status_code < 500:
+            logger.warning(
+                "%s %s %s (%.2fms)",
+                request.method,
+                path,
+                status_code,
+                duration_ms,
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": path,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
+        else:
+            logger.error(
+                "%s %s %s (%.2fms)",
+                request.method,
+                path,
+                status_code,
+                duration_ms,
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": path,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
 
     return response

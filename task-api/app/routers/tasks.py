@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +17,8 @@ logger = logging.getLogger("task_api.tasks")
 
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
-    status: str | None = None,
-    assignee: str | None = None,
+    status: Optional[str] = None,
+    assignee: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     if status or assignee:
