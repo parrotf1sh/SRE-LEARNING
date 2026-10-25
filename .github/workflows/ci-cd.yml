@@ -86,7 +86,7 @@ jobs:
 
       # ── 漏洞扫描 ──────────────────────────────────────
       - name: Trivy 漏洞扫描
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
           format: table
