@@ -1,0 +1,109 @@
+name: task-api CI/CD
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'task-api/**'
+      - 'docker/task-api/**'
+      - 'tests/task-api/**'
+      - 'requirements-test.txt'
+      - '.github/workflows/ci-cd.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: task-api
+
+jobs:
+  # ──────────────────────────────────────────
+  # Job 1: 自动化测试
+  # ──────────────────────────────────────────
+  test:
+    name: 运行测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-test.txt
+
+      - name: 安装测试依赖
+        run: pip install -r requirements-test.txt
+
+      - name: 运行 pytest
+        run: |
+          pytest tests/task-api/ -v --tb=short
+
+  # ──────────────────────────────────────────
+  # Job 2: 构建 → 漏洞扫描 → 推送镜像
+  # ──────────────────────────────────────────
+  build-and-push:
+    name: 构建并推送镜像
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.sha_tag }}
+      image_full: ${{ steps.meta.outputs.image_full }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 生成镜像 Tag
+        id: meta
+        run: |
+          SHA_TAG="dev-$(echo ${{ github.sha }} | cut -c1-7)"
+          IMAGE_FULL="${{ secrets.TCR_REGISTRY }}/${{ secrets.TCR_NAMESPACE }}/${IMAGE_NAME}"
+          echo "sha_tag=${SHA_TAG}"       >> "$GITHUB_OUTPUT"
+          echo "image_full=${IMAGE_FULL}"  >> "$GITHUB_OUTPUT"
+
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录腾讯云镜像仓库
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.TCR_REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+
+      - name: 构建镜像（不推送，用于先扫描）
+        uses: docker/build-push-action@v6
+        with:
+          context: ./task-api
+          file: ./docker/task-api/Dockerfile
+          push: false
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.image_full }}:dev-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── 漏洞扫描 ──────────────────────────────────────
+      - name: Trivy 漏洞扫描
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
+          format: table
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      # ── 推送到 TCR ────────────────────────────────────
+      - name: 推送镜像到腾讯云 TCR
+        run: |
+          docker push ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
+          docker push ${{ steps.meta.outputs.image_full }}:dev-latest
+
+      - name: 构建结果汇总
+        if: always()
+        run: |
+          echo "## 构建结果" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 镜像 | \`${{ steps.meta.outputs.image_full }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag  | \`${{ steps.meta.outputs.sha_tag }}\` / \`dev-latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
