@@ -7,7 +7,7 @@ from app.schemas import TaskCreate, TaskResponse
 from app.redis_client import redis_client
 from app.config import settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("task_api.crud")
 
 CACHE_KEY_TASKS = "cache:tasks:list"
 CACHE_KEY_COUNT = "cache:tasks:count"
@@ -23,6 +23,8 @@ async def _invalidate_cache():
 
 
 async def get_all_tasks(db: AsyncSession) -> tuple[list[TaskResponse], bool]:
+    logger.info(f"get_all_tasks called, redis_client={redis_client is not None}")
+    
     if redis_client:
         try:
             cached = await redis_client.get(CACHE_KEY_TASKS)
