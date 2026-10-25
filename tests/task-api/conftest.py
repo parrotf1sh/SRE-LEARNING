@@ -38,6 +38,16 @@ engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _dispose_real_engines():
+    """app.database.engine 在 import 时就创建了，指向不存在的 MySQL，
+    测试结束后必须显式 dispose，否则异步连接池资源会阻止事件循环关闭。"""
+    yield
+    from app.database import engine as real_engine
+    await real_engine.dispose()
+    await engine.dispose()
+
+
 @pytest_asyncio.fixture(scope="function")
 async def db_session():
     """Provide a fresh in-memory database for each test."""
