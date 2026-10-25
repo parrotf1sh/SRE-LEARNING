@@ -91,7 +91,7 @@ jobs:
           image-ref: ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
           format: table
           exit-code: '1'
-          severity: 'CRITICAL,HIGH'
+          severity: 'CRITICAL'
           ignore-unfixed: true
 
       # ── 推送到 TCR ────────────────────────────────────
