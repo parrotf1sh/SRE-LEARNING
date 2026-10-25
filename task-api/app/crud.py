@@ -1,10 +1,13 @@
 import json
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from app.models import Task
 from app.schemas import TaskCreate, TaskResponse
 from app.redis_client import redis_client
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 CACHE_KEY_TASKS = "cache:tasks:list"
 CACHE_KEY_COUNT = "cache:tasks:count"
@@ -15,8 +18,8 @@ async def _invalidate_cache():
         return
     try:
         await redis_client.delete(CACHE_KEY_TASKS, CACHE_KEY_COUNT)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Redis delete error: {e}")
 
 
 async def get_all_tasks(db: AsyncSession) -> tuple[list[TaskResponse], bool]:
@@ -24,9 +27,10 @@ async def get_all_tasks(db: AsyncSession) -> tuple[list[TaskResponse], bool]:
         try:
             cached = await redis_client.get(CACHE_KEY_TASKS)
             if cached:
+                logger.info("Cache hit for tasks list")
                 return [TaskResponse(**t) for t in json.loads(cached)], True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Redis get error: {e}")
 
     result = await db.execute(select(Task).order_by(Task.created_at.desc()))
     tasks = [TaskResponse.model_validate(t) for t in result.scalars().all()]
@@ -35,8 +39,9 @@ async def get_all_tasks(db: AsyncSession) -> tuple[list[TaskResponse], bool]:
         try:
             data = json.dumps([t.model_dump(mode="json") for t in tasks])
             await redis_client.set(CACHE_KEY_TASKS, data, ex=settings.cache_ttl)
-        except Exception:
-            pass
+            logger.info(f"Cache set for tasks list, TTL={settings.cache_ttl}s")
+        except Exception as e:
+            logger.warning(f"Redis set error: {e}")
 
     return tasks, False
 
@@ -46,9 +51,10 @@ async def get_task_count(db: AsyncSession) -> tuple[int, bool]:
         try:
             cached = await redis_client.get(CACHE_KEY_COUNT)
             if cached is not None:
+                logger.info("Cache hit for task count")
                 return int(cached), True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Redis get error: {e}")
 
     result = await db.execute(select(func.count()).select_from(Task))
     count = result.scalar()
@@ -56,8 +62,9 @@ async def get_task_count(db: AsyncSession) -> tuple[int, bool]:
     if redis_client:
         try:
             await redis_client.set(CACHE_KEY_COUNT, str(count), ex=settings.cache_ttl)
-        except Exception:
-            pass
+            logger.info(f"Cache set for task count, TTL={settings.cache_ttl}s")
+        except Exception as e:
+            logger.warning(f"Redis set error: {e}")
 
     return count, False
 
