@@ -23,8 +23,6 @@ async def _invalidate_cache():
 
 
 async def get_all_tasks(db: AsyncSession) -> tuple[list[TaskResponse], bool]:
-    logger.info(f"get_all_tasks called, redis_client={redis_module.redis_client is not None}")
-    
     if redis_module.redis_client:
         try:
             cached = await redis_module.redis_client.get(CACHE_KEY_TASKS)

@@ -27,7 +27,7 @@ MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root_password} ./mysql/init-replicati
 
 # 5. 初始化 Redis Cluster
 echo "6. 初始化 Redis Cluster..."
-./redis/init-cluster.sh
+sudo ./redis/init-cluster.sh
 
 # 6. 验证集群状态
 echo "7. 验证 Redis 集群状态..."
