@@ -1,0 +1,175 @@
+# Task-API Helm Chart 默认配置
+
+# 全局配置
+global:
+  # 命名空间（留空则使用 release 的命名空间）
+  namespace: ""
+
+# 副本数
+replicaCount: 2
+
+# 镜像配置
+image:
+  repository: ghcr.io/parrotf1sh/task-api
+  tag: "dev-latest"
+  pullPolicy: IfNotPresent
+
+# 镜像拉取密钥（用于私有仓库）
+imagePullSecrets: []
+  # - name: ghcr-secret
+
+# 服务账户配置
+serviceAccount:
+  create: false
+  name: ""
+
+# Pod 注解
+podAnnotations: {}
+
+# Pod 安全上下文
+podSecurityContext:
+  fsGroup: 1000
+
+# 容器安全上下文
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+
+# Service 配置
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+# HTTPRoute 配置（Gateway API）
+httpRoute:
+  enabled: true
+  hostnames:
+    - "task-api.example.com"
+  parentRefs:
+    - name: traefik-gateway
+      namespace: default
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      filters: []
+
+# Ingress 配置（传统方式，与 HTTPRoute 二选一）
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: task-api.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# 资源限制
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# HPA 自动扩缩容配置
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# 节点选择器
+nodeSelector: {}
+
+# 容忍度
+tolerations: []
+
+# 亲和性
+affinity: {}
+
+# 滚动更新策略
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# 健康检查配置
+healthCheck:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# ConfigMap 配置（非敏感业务配置）
+config:
+  APP_NAME: "Task-API"
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+  TZ: "Asia/Shanghai"
+
+# Secret 引用配置（敏感信息）
+# 注意：需要先手动创建这些 Secret，或使用 External Secrets Operator
+secrets:
+  # 是否启用 Secret 引用
+  enabled: true
+  
+  # 数据库配置 Secret
+  database:
+    secretName: task-api-db-secret
+    keys:
+      host: DB_HOST
+      port: DB_PORT
+      user: DB_USER
+      password: DB_PASSWORD
+      name: DB_NAME
+  
+  # Redis 配置 Secret
+  redis:
+    secretName: task-api-redis-secret
+    keys:
+      nodes: REDIS_NODES
+
+# ServiceMonitor 配置（Prometheus 监控）
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  port: http
+  labels: {}
+  annotations: {}
+
+# Prometheus 指标端点
+metrics:
+  enabled: true
+  port: 8000
+  path: /metrics
+
+# 环境变量（直接定义，会覆盖 config 和 secrets）
+env: []
+  # - name: CUSTOM_VAR
+  #   value: "custom-value"
+
+# 启动命令（可选覆盖）
+command: []
+  # - python
+  # - run.py
+
+# 启动参数（可选覆盖）
+args: []
+  # - "--host"
+  # - "0.0.0.0"
+  # - "--port"
+  # - "8000"
