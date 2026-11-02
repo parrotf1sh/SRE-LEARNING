@@ -14,8 +14,6 @@ on:
 env:
   IMAGE_NAME: task-api
   REGISTRY: ghcr.io
-  TCR_REGISTRY: ccr.ccs.tencentyun.com
-  TCR_NAMESPACE: sre-learning
 
 permissions:
   contents: read
@@ -51,13 +49,12 @@ jobs:
   # Job 2: 构建 → 漏洞扫描 → 推送镜像
   # ──────────────────────────────────────────
   build-and-push:
-    name: 构建并推送镜像（GHCR + TCR）
+    name: 构建并推送镜像
     needs: test
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.sha_tag }}
       image_full: ${{ steps.meta.outputs.image_full }}
-      tcr_image_full: ${{ steps.meta.outputs.tcr_image_full }}
     steps:
       - uses: actions/checkout@v4
 
@@ -66,10 +63,8 @@ jobs:
         run: |
           SHA_TAG="dev-$(echo ${{ github.sha }} | cut -c1-7)"
           IMAGE_FULL="${REGISTRY}/${{ github.repository_owner }}/${IMAGE_NAME}"
-          TCR_IMAGE_FULL="${TCR_REGISTRY}/${TCR_NAMESPACE}/${IMAGE_NAME}"
-          echo "sha_tag=${SHA_TAG}"              >> "$GITHUB_OUTPUT"
-          echo "image_full=${IMAGE_FULL}"        >> "$GITHUB_OUTPUT"
-          echo "tcr_image_full=${TCR_IMAGE_FULL}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}"       >> "$GITHUB_OUTPUT"
+          echo "image_full=${IMAGE_FULL}"  >> "$GITHUB_OUTPUT"
 
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,8 +86,6 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
             ${{ steps.meta.outputs.image_full }}:dev-latest
-            ${{ steps.meta.outputs.tcr_image_full }}:${{ steps.meta.outputs.sha_tag }}
-            ${{ steps.meta.outputs.tcr_image_full }}:dev-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -112,46 +105,13 @@ jobs:
           docker push ${{ steps.meta.outputs.image_full }}:${{ steps.meta.outputs.sha_tag }}
           docker push ${{ steps.meta.outputs.image_full }}:dev-latest
 
-      # ── 推送到腾讯云 TCR（失败不阻塞 GHCR CI）──────────
-      # 需在仓库 Settings → Secrets and variables → Actions 中配置：
-      #   TCR_USERNAME — 腾讯云账号 ID
-      #   TCR_PASSWORD — TCR 镜像仓库密码（不是腾讯云登录密码）
-      - name: 登录腾讯云 TCR
-        id: tcr_login
-        continue-on-error: true
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.TCR_REGISTRY }}
-          username: ${{ secrets.TCR_USERNAME }}
-          password: ${{ secrets.TCR_PASSWORD }}
-
-      - name: 推送镜像到腾讯云 TCR（失败不阻塞 CI）
-        id: tcr_push
-        if: steps.tcr_login.outcome == 'success'
-        continue-on-error: true
-        run: |
-          for attempt in 1 2 3; do
-            echo "TCR 推送第 ${attempt} 次尝试"
-            if timeout 600 docker push "${{ steps.meta.outputs.tcr_image_full }}:${{ steps.meta.outputs.sha_tag }}" && \
-               timeout 600 docker push "${{ steps.meta.outputs.tcr_image_full }}:dev-latest"; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "TCR 推送连续失败，请检查跨域网络，或改用服务器端 skopeo 同步"
-          echo "::warning::TCR 推送失败，不阻塞 GHCR CI"
-          exit 1
-
       - name: 构建结果汇总
         if: always()
         run: |
           echo "## 构建结果" >> $GITHUB_STEP_SUMMARY
           echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| GHCR | \`${{ steps.meta.outputs.image_full }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| TCR | \`${{ steps.meta.outputs.tcr_image_full }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| TCR 登录结果 | ${{ steps.tcr_login.outcome }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| TCR 推送结果 | ${{ steps.tcr_push.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 镜像 | \`${{ steps.meta.outputs.image_full }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Tag  | \`${{ steps.meta.outputs.sha_tag }}\` / \`dev-latest\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
 
