@@ -1,0 +1,17 @@
+apiVersion: v2
+name: task-api
+description: Task-API 应用的 Helm Chart（FastAPI + MySQL + Redis）
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - fastapi
+  - task-api
+  - sre-learning
+
+maintainers:
+  - name: SRE Learning Team
+
+sources:
+  - https://github.com/parrotf1sh/sre-lreaning
