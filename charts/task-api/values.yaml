@@ -154,9 +154,10 @@ secrets:
     secretName: task-api-redis-secret
 
 serviceMonitor:
-  # 应用当前没有 /metrics 端点，启用前需先实现指标导出
-  enabled: false
-  interval: 30s
+  # 应用已通过 prometheus-fastapi-instrumentator 暴露 /metrics
+  enabled: true
+  # 与 Prometheus 全局 scrapeInterval 对齐，避免额外抓取压力
+  interval: 60s
   scrapeTimeout: 10s
   path: /metrics
   port: http

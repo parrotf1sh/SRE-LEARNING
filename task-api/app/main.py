@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.logging_config import setup_logging
 from app.database import init_db, close_db
@@ -40,3 +41,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(health.router)
 app.include_router(tasks.router)
+
+Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    should_instrument_requests_inprogress=True,
+    inprogress_labels=True,
+    excluded_handlers=["/metrics", "/health", "/docs", "/redoc", r"/openapi\.json"],
+).instrument(app).expose(app, endpoint="/metrics")
