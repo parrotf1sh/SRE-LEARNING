@@ -19,7 +19,7 @@ docker build \
   -t "$IMAGE:dev-latest" \
   task-api/
   
-docker login ccr.ccs.tencentyun.com --username=100015895782
+docker login ccr.ccs.tencentyun.com --username=<TCR_USERNAME>
 
 docker push "$IMAGE:$TAG"
 docker push "$IMAGE:dev-latest"
@@ -29,5 +29,23 @@ docker push "$IMAGE:dev-latest"
 kubectl port-forward svc/argocd-server -n argocd 8080:443
   
 ssh -N -L 8080:127.0.0.1:8080 ubuntu@43.142.11.53
+```
+
+
+
+```
+kubectl -n task-api create secret generic mysql-credentials \
+  --from-literal=MYSQL_ROOT_PASSWORD='<ROOT_PASSWORD>' \
+  --from-literal=MYSQL_PASSWORD='<APP_PASSWORD>'
+
+kubectl -n task-api create secret generic task-api-db-secret \
+  --from-literal=DB_HOST=mysql.task-api.svc.cluster.local \
+  --from-literal=DB_PORT=3306 \
+  --from-literal=DB_USER=taskapi \
+  --from-literal=DB_PASSWORD='<APP_PASSWORD>' \
+  --from-literal=DB_NAME=task_api
+
+kubectl -n task-api create secret generic task-api-redis-secret \
+  --from-literal=REDIS_NODES=redis.task-api.svc.cluster.local:6379
 ```
 
