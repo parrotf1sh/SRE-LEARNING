@@ -73,6 +73,29 @@ kubectl -n task-api create secret generic task-api-redis-secret \
 
 数据来源主要是 node-exporter、kubelet 及相关 Kubernetes 指标。
 
+
+
+```
+# CPU 使用率 %
+100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])))
+
+# 内存使用率 %
+100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+
+# 根分区使用率 %
+100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})
+
+# Node Ready（1=正常）
+kube_node_status_condition{condition="Ready",status="true"}
+
+# 网络吞吐（接收/发送，排除虚拟网卡）
+sum by (device) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|flannel.*|cni0|docker0"}[5m]))
+sum by (device) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*|flannel.*|cni0|docker0"}[5m]))
+```
+
+
+
 #### 第二层：Kubernetes 工作负载指标
 
 | 指标                     | 监控意义                  |
@@ -85,6 +108,39 @@ kubectl -n task-api create secret generic task-api-redis-secret \
 | CPU Throttling           | 是否因 CPU limit 导致限流 |
 | PVC 使用率               | 有状态服务容量是否不足    |
 | HPA 当前/期望副本数      | 扩缩容行为是否合理        |
+
+
+
+```
+# 非 Ready 的 Pod（结果 >0 就是有问题）
+kube_pod_status_ready{condition="true"} == 0
+
+# Deployment 可用副本 / 期望副本
+kube_deployment_status_replicas_available / kube_deployment_spec_replicas
+
+# 最近 1 小时重启过的容器
+increase(kube_pod_container_status_restarts_total[1h]) > 0
+
+# 容器 CPU 使用（核）
+sum by (namespace, pod) (
+  rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])
+)
+
+# 容器内存 working set
+sum by (namespace, pod) (
+  container_memory_working_set_bytes{container!="",container!="POD"}
+)
+
+# CPU 限流比例（0~1，越高说明被 limit 卡得越厉害）
+sum by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total{container!=""}[5m]))
+/
+sum by (namespace, pod) (rate(container_cpu_cfs_periods_total{container!=""}[5m]))
+
+# PVC 使用率（可选）
+kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes
+```
+
+
 
 #### 第三层：Task-API 业务指标
 
@@ -105,6 +161,30 @@ kubectl -n task-api create secret generic task-api-redis-secret \
 
 为了支持 P95、P99 延迟分析，HTTP 请求耗时最好使用 Histogram 指标，而不仅仅记录平均响应时间。
 
+
+
+```
+# RPS
+sum(rate(http_requests_total[5m]))
+
+# 5xx 错误率
+sum(rate(http_requests_total{status=~"5.."}[5m]))
+/
+sum(rate(http_requests_total[5m]))
+
+# P95 / P99
+histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+
+# 活跃请求（具体名字按最终实现）
+sum(http_requests_in_flight)
+
+# Task 创建失败次数
+sum(increase(task_operations_total{operation="create",result="failure"}[1h]))
+```
+
+
+
 #### 第四层：数据库与缓存指标
 
 使用 mysqld-exporter、redis-exporter 等组件采集。
@@ -118,3 +198,22 @@ kubectl -n task-api create secret generic task-api-redis-secret \
 | 查询吞吐                 | 每秒处理命令数       |
 | 主从复制延迟（如果启用） | 复制状态（如果启用） |
 | 存储空间                 | Key 过期、驱逐情况   |
+
+
+
+```
+mysql_up
+mysql_global_status_threads_connected / mysql_global_variables_max_connections
+rate(mysql_global_status_slow_queries[5m])
+rate(mysql_global_status_questions[5m])
+1 - rate(mysql_global_status_innodb_buffer_pool_reads[5m])
+    / rate(mysql_global_status_innodb_buffer_pool_read_requests[5m])
+    
+redis_up
+redis_connected_clients
+redis_memory_used_bytes / redis_memory_max_bytes
+rate(redis_keyspace_hits_total[5m])
+  / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))
+rate(redis_evicted_keys_total[5m])
+```
+

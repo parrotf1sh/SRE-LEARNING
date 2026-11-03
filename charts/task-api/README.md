@@ -13,7 +13,7 @@ Task-API（FastAPI + MySQL + Redis）的 Helm Chart。默认从腾讯云 TCR 公
 | Ingress | `templates/ingress.yaml` | 否 | 默认 `traefik`，K3s 可直接使用 |
 | HTTPRoute | `templates/httproute.yaml` | 否 | 需要 Gateway API CRD |
 | HPA | `templates/hpa.yaml` | 否 | 需要 metrics-server |
-| ServiceMonitor | `templates/servicemonitor.yaml` | 否 | 需要 Prometheus Operator，且应用需暴露 `/metrics` |
+| ServiceMonitor | `templates/servicemonitor.yaml` | 是 | 需要 Prometheus Operator；应用已暴露 `/metrics` |
 
 Secret 不由 Chart 创建。`templates/secret.yaml` 已移除，避免外部 Secret 变更被误认为会触发 Pod 滚动更新。
 
@@ -23,7 +23,8 @@ Secret 不由 Chart 创建。`templates/secret.yaml` 已移除，避免外部 Se
 2. Helm 3.x
 3. 节点可访问 `ccr.ccs.tencentyun.com`
 4. 已创建数据库和 Redis 的 Secret
-5. 可选：Ingress Controller、Gateway API CRD、metrics-server、Prometheus Operator
+5. Prometheus Operator（默认启用 ServiceMonitor，需要 `monitoring.coreos.com/v1` CRD）
+6. 可选：Ingress Controller、Gateway API CRD、metrics-server
 
 ## 快速开始
 
@@ -136,14 +137,40 @@ helm upgrade task-api ./charts/task-api -n task-api \
 
 ## 监控
 
-应用当前没有 `/metrics` 端点，因此 `serviceMonitor.enabled` 默认关闭。直接启用会创建 ServiceMonitor，但 Prometheus 抓取会得到 404。实现指标导出后再启用：
+应用通过 `prometheus-fastapi-instrumentator` 暴露 `/metrics`，`serviceMonitor.enabled` 默认开启。抓取目标和指标：
 
-```bash
-helm upgrade task-api ./charts/task-api -n task-api \
-  --set serviceMonitor.enabled=true
+| 指标 | 说明 |
+|------|------|
+| `http_requests_total{method,handler,status}` | 请求数，`handler` 是规范化路由模板 |
+| `http_request_duration_seconds_bucket{method,handler,le}` | 请求耗时 Histogram |
+| `http_requests_inprogress{method,handler}` | 正在处理的请求数 |
+| `task_operations_total{operation,result}` | 业务操作：`create/delete` × `success/failure/not_found` |
+
+`/metrics`、`/health`、`/docs` 不进入 HTTP 指标；未匹配到路由的请求（404）也不记录，避免原始 URL 造成高基数。
+
+Prometheus 里可以直接使用：
+
+```promql
+sum(rate(http_requests_total[5m]))
+
+sum(rate(http_requests_total{status=~"5.."}[5m]))
+  / sum(rate(http_requests_total[5m]))
+
+histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+
+sum(increase(task_operations_total{operation="create",result="failure"}[1h]))
 ```
 
-启用时 Helm 会检查 `monitoring.coreos.com/v1` 是否存在。
+ServiceMonitor 会抓取 `task-api` 命名空间中的 `http` 端口：
+
+```bash
+kubectl -n task-api get servicemonitor
+kubectl -n monitoring get prometheus kube-prometheus-stack-prometheus \
+  -o jsonpath='{.spec.serviceMonitorNamespaceSelector}'
+```
+
+如果 Prometheus 只监听 `monitoring` 命名空间，需要把 `serviceMonitorNamespaceSelector` 设为 `{}`（本仓库的 `k8s/monitoring/values.yaml` 使用默认值 `{}`，可发现所有命名空间）。
 
 ## HPA
 

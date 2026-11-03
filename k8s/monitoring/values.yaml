@@ -72,8 +72,9 @@ prometheus:
             # 已存在的 PVC 不能缩容，保持 5Gi；实际由 retentionSize 控制用量
             requests:
               storage: 5Gi
-    # 允许 Prometheus 采集所有命名空间的 ServiceMonitor
+    # 允许 Prometheus 采集所有命名空间的 ServiceMonitor（含 task-api）
     serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
@@ -117,6 +118,10 @@ prometheus-node-exporter:
       memory: 48Mi
 
 grafana:
+  # SQLite + RWO PVC：滚动更新会让新旧 Pod 同时挂载同一份数据库导致锁冲突
+  # 必须用 Recreate，先停旧 Pod 再起新 Pod
+  deploymentStrategy:
+    type: Recreate
   image:
     registry: docker.m.daocloud.io
     repository: grafana/grafana
@@ -134,7 +139,8 @@ grafana:
         memory: 16Mi
       limits:
         cpu: 50m
-        memory: 64Mi
+        # 64Mi 会被 k8s-sidecar 同步 dashboard 时打爆（OOMKilled）
+        memory: 128Mi
     dashboards:
       # 只监听本命名空间，避免全集群 watch 增加 API Server 负担
       searchNamespace: monitoring
