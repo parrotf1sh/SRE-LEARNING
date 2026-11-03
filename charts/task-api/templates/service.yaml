@@ -2,13 +2,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "task-api.fullname" . }}
-  namespace: {{ include "task-api.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "task-api.labels" . | nindent 4 }}
-    {{- if .Values.serviceMonitor.enabled }}
-    # Prometheus 服务发现标签
-    app.kubernetes.io/component: api
-    {{- end }}
   {{- with .Values.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -16,15 +12,9 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: {{ .Values.service.targetPort }}
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
       protocol: TCP
-      name: http
-    {{- if .Values.metrics.enabled }}
-    - port: {{ .Values.metrics.port }}
-      targetPort: {{ .Values.metrics.port }}
-      protocol: TCP
-      name: metrics
-    {{- end }}
   selector:
     {{- include "task-api.selectorLabels" . | nindent 4 }}

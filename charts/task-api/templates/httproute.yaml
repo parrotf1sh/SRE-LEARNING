@@ -1,22 +1,38 @@
+{{- if and .Values.httpRoute.enabled .Values.ingress.enabled }}
+{{- fail "httpRoute.enabled 与 ingress.enabled 不能同时为 true" }}
+{{- end }}
 {{- if .Values.httpRoute.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1") }}
+{{- fail "httpRoute.enabled=true，但集群未安装 Gateway API CRD（gateway.networking.k8s.io/v1）" }}
+{{- end }}
+{{- if not .Values.httpRoute.hostnames }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.hostnames 不能为空" }}
+{{- end }}
+{{- if not .Values.httpRoute.parentRefs }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.parentRefs 不能为空" }}
+{{- end }}
+{{- if not .Values.httpRoute.rules }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.rules 不能为空" }}
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: {{ include "task-api.fullname" . }}
-  namespace: {{ include "task-api.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "task-api.labels" . | nindent 4 }}
 spec:
   parentRefs:
     {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
-  {{- with .Values.httpRoute.hostnames }}
   hostnames:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
   rules:
     {{- range .Values.httpRoute.rules }}
-    - matches:
-        {{- toYaml .matches | nindent 8 }}
+    -
+      {{- with .matches }}
+      matches:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .filters }}
       filters:
         {{- toYaml . | nindent 8 }}
@@ -25,51 +41,5 @@ spec:
         - name: {{ include "task-api.fullname" $ }}
           port: {{ $.Values.service.port }}
           weight: 1
-    {{- end }}
-{{- end }}
----
-{{/*
-传统 Ingress 配置（与 HTTPRoute 二选一）
-*/}}
-{{- if .Values.ingress.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "task-api.fullname" . }}
-  namespace: {{ include "task-api.namespace" . }}
-  labels:
-    {{- include "task-api.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
-  {{- if .Values.ingress.tls }}
-  tls:
-    {{- range .Values.ingress.tls }}
-    - hosts:
-        {{- range .hosts }}
-        - {{ . | quote }}
-        {{- end }}
-      secretName: {{ .secretName }}
-    {{- end }}
-  {{- end }}
-  rules:
-    {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
-      http:
-        paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
-            backend:
-              service:
-                name: {{ include "task-api.fullname" $ }}
-                port:
-                  number: {{ $.Values.service.port }}
-          {{- end }}
     {{- end }}
 {{- end }}

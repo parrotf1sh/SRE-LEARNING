@@ -1,52 +1,83 @@
 # Task-API Helm Chart 默认配置
 
-# 全局配置
-global:
-  # 命名空间（留空则使用 release 的命名空间）
-  namespace: ""
+nameOverride: ""
+fullnameOverride: ""
 
-# 副本数
+# 副本数（启用 HPA 后由 HPA 管理）
 replicaCount: 2
 
 # 镜像配置
 image:
-  repository: ghcr.io/parrotf1sh/task-api
-  tag: "dev-latest"
+  # 腾讯云容器镜像服务（TCR）公开仓库，匿名可拉取
+  repository: ccr.ccs.tencentyun.com/sre-learning/task-api
+  # 使用不可变的短 SHA tag，避免 dev-latest 被覆盖后节点继续使用旧镜像
+  tag: "dev-75165fe"
   pullPolicy: IfNotPresent
 
-# 镜像拉取密钥（用于私有仓库）
+# 仅私有仓库需要，创建 docker-registry 类型的 Secret 后填入
 imagePullSecrets: []
-  # - name: ghcr-secret
+#  - name: tcr-secret
 
-# 服务账户配置
 serviceAccount:
-  create: false
+  create: true
   name: ""
+  annotations: {}
+  # 应用不访问 Kubernetes API，禁止挂载 ServiceAccount token
+  automountServiceAccountToken: false
 
-# Pod 注解
 podAnnotations: {}
 
-# Pod 安全上下文
 podSecurityContext:
-  fsGroup: 1000
+  fsGroup: 999
+  fsGroupChangePolicy: OnRootMismatch
 
-# 容器安全上下文
 securityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  readOnlyRootFilesystem: false
+  # 镜像内 appuser 的实际 UID/GID 为 999
+  runAsUser: 999
+  runAsGroup: 999
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
-# Service 配置
+# 容器监听端口；修改时需同步调整 args 中的 --port
+containerPort: 8000
+
 service:
   type: ClusterIP
   port: 8000
-  targetPort: 8000
+  annotations: {}
 
-# HTTPRoute 配置（Gateway API）
-httpRoute:
+# 覆盖镜像默认 CMD（run.py 中 reload=True，不适合容器运行）
+command:
+  - uvicorn
+args:
+  - app.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+
+healthCheck:
   enabled: true
+  # 就绪探针解析该路径响应中的 status 字段；存活探针只检查 TCP 端口
+  path: /health
+  startupFailureThreshold: 30
+  startupPeriodSeconds: 2
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# HTTPRoute 与 Ingress 不能同时启用
+httpRoute:
+  enabled: false
+  # 启用时必须改为真实域名，并确认 Gateway API CRD 已安装
   hostnames:
-    - "task-api.example.com"
+    - task-api.example.com
   parentRefs:
     - name: traefik-gateway
       namespace: default
@@ -55,13 +86,13 @@ httpRoute:
     - matches:
         - path:
             type: PathPrefix
-            value: /api
+            value: /
       filters: []
 
-# Ingress 配置（传统方式，与 HTTPRoute 二选一）
 ingress:
   enabled: false
-  className: "nginx"
+  # K3s 默认使用 Traefik；使用 ingress-nginx 时改为 nginx
+  className: traefik
   annotations: {}
   hosts:
     - host: task-api.local
@@ -70,7 +101,6 @@ ingress:
           pathType: Prefix
   tls: []
 
-# 资源限制
 resources:
   requests:
     cpu: 100m
@@ -79,97 +109,57 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# HPA 自动扩缩容配置
 autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
+  # 内存利用率按 requests 计算，Python 应用常驻内存较高，默认不启用
+  targetMemoryUtilizationPercentage: null
+  customMetrics: []
+  behavior: {}
 
-# 节点选择器
 nodeSelector: {}
-
-# 容忍度
 tolerations: []
-
-# 亲和性
 affinity: {}
 
-# 滚动更新策略
 strategy:
   type: RollingUpdate
   rollingUpdate:
     maxSurge: 1
     maxUnavailable: 0
 
-# 健康检查配置
-healthCheck:
-  enabled: true
-  path: /health
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 3
-  successThreshold: 1
+terminationGracePeriodSeconds: 30
 
-# ConfigMap 配置（非敏感业务配置）
+# 非敏感环境变量，通过 ConfigMap 注入
 config:
-  APP_NAME: "Task-API"
-  LOG_LEVEL: "INFO"
-  ENVIRONMENT: "production"
-  TZ: "Asia/Shanghai"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
 
-# Secret 引用配置（敏感信息）
-# 注意：需要先手动创建这些 Secret，或使用 External Secrets Operator
+# 敏感信息由外部 Secret 提供，Chart 不创建 Secret
+# 数据库 Secret 必需键：DB_HOST、DB_PORT、DB_USER、DB_PASSWORD、DB_NAME
+# Redis Secret 必需键：REDIS_NODES
 secrets:
-  # 是否启用 Secret 引用
   enabled: true
-  
-  # 数据库配置 Secret
   database:
     secretName: task-api-db-secret
-    keys:
-      host: DB_HOST
-      port: DB_PORT
-      user: DB_USER
-      password: DB_PASSWORD
-      name: DB_NAME
-  
-  # Redis 配置 Secret
   redis:
     secretName: task-api-redis-secret
-    keys:
-      nodes: REDIS_NODES
 
-# ServiceMonitor 配置（Prometheus 监控）
 serviceMonitor:
-  enabled: true
+  # 应用当前没有 /metrics 端点，启用前需先实现指标导出
+  enabled: false
   interval: 30s
+  scrapeTimeout: 10s
   path: /metrics
   port: http
   labels: {}
   annotations: {}
+  honorLabels: false
+  metricRelabelings: []
+  relabelings: []
 
-# Prometheus 指标端点
-metrics:
-  enabled: true
-  port: 8000
-  path: /metrics
-
-# 环境变量（直接定义，会覆盖 config 和 secrets）
+# 额外的环境变量，会覆盖 ConfigMap/Secret 中的同名变量
 env: []
-  # - name: CUSTOM_VAR
-  #   value: "custom-value"
-
-# 启动命令（可选覆盖）
-command: []
-  # - python
-  # - run.py
-
-# 启动参数（可选覆盖）
-args: []
-  # - "--host"
-  # - "0.0.0.0"
-  # - "--port"
-  # - "8000"
+#  - name: CUSTOM_VAR
+#    value: "custom-value"

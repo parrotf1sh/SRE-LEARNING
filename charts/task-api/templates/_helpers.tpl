@@ -53,13 +53,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-生成命名空间
+生成 ServiceAccount 名称
 */}}
-{{- define "task-api.namespace" -}}
-{{- if .Values.global.namespace }}
-{{- .Values.global.namespace }}
+{{- define "task-api.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "task-api.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
-{{- .Release.Namespace }}
+{{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
@@ -67,5 +67,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 生成镜像完整路径
 */}}
 {{- define "task-api.image" -}}
-{{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
+{{- $repository := required "image.repository 不能为空" .Values.image.repository | toString }}
+{{- $tag := required "image.tag 必须显式指定，不能依赖 Chart.appVersion" .Values.image.tag | toString }}
+{{- printf "%s:%s" $repository $tag }}
 {{- end }}
