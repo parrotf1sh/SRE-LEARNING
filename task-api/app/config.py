@@ -13,6 +13,10 @@ class Settings:
     db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", "task_api"))
 
+    redis_mode: str = field(
+        default_factory=lambda: os.getenv("REDIS_MODE", "auto").lower()
+    )
+
     redis_nodes: str = field(
         default_factory=lambda: os.getenv(
             "REDIS_NODES", "127.0.0.1:6379"
