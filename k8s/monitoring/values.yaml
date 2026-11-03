@@ -4,8 +4,9 @@
 #   kubectl -n monitoring create secret generic grafana-admin \
 #     --from-literal=admin-user=admin \
 #     --from-literal=admin-password="$(openssl rand -base64 18)"
-# 安装：
-#   helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+# 安装（国内使用南京大学 GHCR 镜像，chart 校验和与官方一致）：
+#   helm upgrade --install kube-prometheus-stack \
+#     oci://ghcr.nju.edu.cn/prometheus-community/charts/kube-prometheus-stack \
 #     -n monitoring --create-namespace --version 92.17.1 -f k8s/monitoring/values.yaml
 
 crds:
@@ -32,7 +33,7 @@ prometheusOperator:
   admissionWebhooks:
     patch:
       image:
-        registry: ghcr.m.daocloud.io
+        registry: ghcr.nju.edu.cn
         repository: jkroepke/kube-webhook-certgen
   resources:
     requests:
