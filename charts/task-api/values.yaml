@@ -48,8 +48,11 @@ securityContext:
 containerPort: 8000
 
 service:
+  # 仅集群内访问；如需节点端口，改为 NodePort 并设置 nodePort
   type: ClusterIP
   port: 8000
+  # 仅 NodePort/LoadBalancer 生效；K3s 默认允许范围 30000-32767
+  # nodePort: 30080
   annotations: {}
 
 # 覆盖镜像默认 CMD（run.py 中 reload=True，不适合容器运行）

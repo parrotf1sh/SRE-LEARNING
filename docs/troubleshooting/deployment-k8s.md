@@ -49,3 +49,10 @@ kubectl -n task-api create secret generic task-api-redis-secret \
   --from-literal=REDIS_NODES=redis.task-api.svc.cluster.local:6379
 ```
 
+区分：
+
+- 基础设施是否正常；
+- Kubernetes 工作负载是否正常；
+- 应用接口是否正常；
+- 依赖服务是否正常；
+- 用户是否真的受到影响。

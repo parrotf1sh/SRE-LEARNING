@@ -1,0 +1,135 @@
+# kube-prometheus-stack values（K3s 单节点 2C4G，镜像走 DaoCloud 公共加速）
+# 安装前先创建命名空间和 Grafana 密码 Secret：
+#   kubectl create namespace monitoring
+#   kubectl -n monitoring create secret generic grafana-admin \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password="$(openssl rand -base64 18)"
+# 安装：
+#   helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace --version 92.17.1 -f k8s/monitoring/values.yaml
+
+crds:
+  enabled: true
+
+# K3s 控制面组件合并进 k3s server，默认不暴露这些指标
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheusOperator:
+  image:
+    registry: quay.m.daocloud.io
+    repository: prometheus-operator/prometheus-operator
+  prometheusConfigReloader:
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus-operator/prometheus-config-reloader
+  admissionWebhooks:
+    patch:
+      image:
+        registry: ghcr.m.daocloud.io
+        repository: jkroepke/kube-webhook-certgen
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+prometheus:
+  prometheusSpec:
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus/prometheus
+    retention: 7d
+    retentionSize: 2GB
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+    # 允许 Prometheus 采集所有命名空间的 ServiceMonitor
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+alertmanager:
+  alertmanagerSpec:
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus/alertmanager
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+kube-state-metrics:
+  image:
+    registry: k8s.m.daocloud.io
+    repository: kube-state-metrics/kube-state-metrics
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+prometheus-node-exporter:
+  image:
+    registry: quay.m.daocloud.io
+    repository: prometheus/node-exporter
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+grafana:
+  image:
+    registry: docker.m.daocloud.io
+    repository: grafana/grafana
+  initChownData:
+    image:
+      registry: docker.m.daocloud.io
+      repository: library/busybox
+  sidecar:
+    image:
+      registry: quay.m.daocloud.io
+      repository: kiwigrid/k8s-sidecar
+  admin:
+    existingSecret: grafana-admin
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 1Gi
+  defaultDashboardsTimezone: Asia/Shanghai

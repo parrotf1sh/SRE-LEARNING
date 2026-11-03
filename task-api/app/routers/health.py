@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from sqlalchemy import text
 
 from app.database import AsyncSessionLocal
-from app.redis_client import redis_client
+from app import redis_client as redis_module
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger("task_api.health")
@@ -26,9 +26,9 @@ async def _check_mysql() -> dict:
 async def _check_redis() -> dict:
     start = time.perf_counter()
     try:
-        if not redis_client:
+        if not redis_module.redis_client:
             return {"status": "not_initialized"}
-        await redis_client.ping()
+        await redis_module.redis_client.ping()
         latency = round((time.perf_counter() - start) * 1000, 2)
         return {"status": "connected", "latency_ms": latency}
     except Exception as e:
