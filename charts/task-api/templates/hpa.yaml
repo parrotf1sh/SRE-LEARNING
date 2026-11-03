@@ -1,9 +1,18 @@
 {{- if .Values.autoscaling.enabled }}
+{{- if and (not .Values.autoscaling.targetCPUUtilizationPercentage) (not .Values.autoscaling.targetMemoryUtilizationPercentage) (not .Values.autoscaling.customMetrics) }}
+{{- fail "autoscaling.enabled=true 时至少需要配置一个扩缩容指标" }}
+{{- end }}
+{{- if lt (int .Values.autoscaling.minReplicas) 1 }}
+{{- fail "autoscaling.minReplicas 必须大于等于 1" }}
+{{- end }}
+{{- if gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas) }}
+{{- fail "autoscaling.minReplicas 不能大于 autoscaling.maxReplicas" }}
+{{- end }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "task-api.fullname" . }}
-  namespace: {{ include "task-api.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "task-api.labels" . | nindent 4 }}
 spec:

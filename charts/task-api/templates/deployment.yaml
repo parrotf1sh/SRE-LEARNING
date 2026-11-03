@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "task-api.fullname" . }}
-  namespace: {{ include "task-api.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "task-api.labels" . | nindent 4 }}
 spec:
@@ -17,92 +17,102 @@ spec:
   template:
     metadata:
       annotations:
-        # 配置变更时自动重启 Pod
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        # 仅 ConfigMap 由本 Chart 管理，外部 Secret 变更需要手动 rollout restart
+        checksum/config: {{ toYaml .Values.config | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
         {{- include "task-api.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "task-api.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.serviceAccount.name }}
-      serviceAccountName: {{ .Values.serviceAccount.name }}
-      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
+          image: {{ include "task-api.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ include "task-api.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if .Values.command }}
+          {{- with .Values.command }}
           command:
-            {{- toYaml .Values.command | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.args }}
+          {{- with .Values.args }}
           args:
-            {{- toYaml .Values.args | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.targetPort }}
+              containerPort: {{ .Values.containerPort }}
               protocol: TCP
-            {{- if .Values.metrics.enabled }}
-            - name: metrics
-              containerPort: {{ .Values.metrics.port }}
-              protocol: TCP
-            {{- end }}
-          # 环境变量：来自 ConfigMap
           envFrom:
             - configMapRef:
                 name: {{ include "task-api.fullname" . }}-config
-          # 环境变量：来自 Secret
-          {{- if .Values.secrets.enabled }}
-            {{- if .Values.secrets.database.secretName }}
+            {{- if .Values.secrets.enabled }}
+            {{- with .Values.secrets.database.secretName }}
             - secretRef:
-                name: {{ .Values.secrets.database.secretName }}
+                name: {{ . }}
             {{- end }}
-            {{- if .Values.secrets.redis.secretName }}
+            {{- with .Values.secrets.redis.secretName }}
             - secretRef:
-                name: {{ .Values.secrets.redis.secretName }}
+                name: {{ . }}
             {{- end }}
-          {{- end }}
-          # 额外的环境变量
+            {{- end }}
           {{- with .Values.env }}
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          # 健康检查：存活探针
           {{- if .Values.healthCheck.enabled }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: {{ .Values.healthCheck.startupFailureThreshold }}
+            periodSeconds: {{ .Values.healthCheck.startupPeriodSeconds }}
           livenessProbe:
-            httpGet:
-              path: {{ .Values.healthCheck.path }}
+            tcpSocket:
               port: http
-            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.timeoutSeconds }}
             failureThreshold: {{ .Values.healthCheck.failureThreshold }}
-            successThreshold: {{ .Values.healthCheck.successThreshold }}
-          # 健康检查：就绪探针
           readinessProbe:
-            httpGet:
-              path: {{ .Values.healthCheck.path }}
-              port: http
-            initialDelaySeconds: 5
+            exec:
+              command:
+                - python
+                - -c
+                - |
+                  import json, sys
+                  from http.client import HTTPConnection
+
+                  conn = HTTPConnection("127.0.0.1", {{ .Values.containerPort }}, timeout=3)
+                  try:
+                      conn.request("GET", "{{ .Values.healthCheck.path }}")
+                      status = json.loads(conn.getresponse().read()).get("status")
+                  finally:
+                      conn.close()
+                  sys.exit(0 if status == "healthy" else 1)
             periodSeconds: {{ .Values.healthCheck.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.timeoutSeconds }}
             failureThreshold: {{ .Values.healthCheck.failureThreshold }}
-            successThreshold: {{ .Values.healthCheck.successThreshold }}
           {{- end }}
-          # 资源限制
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.securityContext.readOnlyRootFilesystem }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if .Values.securityContext.readOnlyRootFilesystem }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
