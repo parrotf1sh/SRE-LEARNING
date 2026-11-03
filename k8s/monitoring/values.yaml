@@ -1,4 +1,5 @@
 # kube-prometheus-stack values（K3s 单节点 2C4G，镜像走 DaoCloud 公共加速）
+# 已按 2C4G 低配裁剪：关闭 Alertmanager、缩短 Prometheus 保留期、抓取间隔放宽到 60s
 # 安装前先创建命名空间和 Grafana 密码 Secret：
 #   kubectl create namespace monitoring
 #   kubectl -n monitoring create secret generic grafana-admin \
@@ -38,25 +39,29 @@ prometheusOperator:
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 96Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 192Mi
 
 prometheus:
   prometheusSpec:
     image:
       registry: quay.m.daocloud.io
       repository: prometheus/prometheus
-    retention: 7d
-    retentionSize: 2GB
+    # 单节点只保留 3 天 / 1GB，降低 TSDB 内存与磁盘压力
+    retention: 3d
+    retentionSize: 1GB
+    # 2C4G 上适当放宽抓取频率，减少 CPU 与序列数
+    scrapeInterval: 60s
+    evaluationInterval: 60s
     resources:
       requests:
         cpu: 100m
-        memory: 384Mi
+        memory: 256Mi
       limits:
-        cpu: 500m
-        memory: 1Gi
+        cpu: 400m
+        memory: 640Mi
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -64,6 +69,7 @@ prometheus:
           accessModes:
             - ReadWriteOnce
           resources:
+            # 已存在的 PVC 不能缩容，保持 5Gi；实际由 retentionSize 控制用量
             requests:
               storage: 5Gi
     # 允许 Prometheus 采集所有命名空间的 ServiceMonitor
@@ -72,6 +78,8 @@ prometheus:
     ruleSelectorNilUsesHelmValues: false
 
 alertmanager:
+  # 2C4G 先关闭告警组件；需要告警时改为 true
+  enabled: false
   alertmanagerSpec:
     image:
       registry: quay.m.daocloud.io
@@ -91,10 +99,10 @@ kube-state-metrics:
   resources:
     requests:
       cpu: 20m
-      memory: 64Mi
+      memory: 48Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 96Mi
 
 prometheus-node-exporter:
   image:
@@ -103,10 +111,10 @@ prometheus-node-exporter:
   resources:
     requests:
       cpu: 10m
-      memory: 32Mi
+      memory: 24Mi
     limits:
-      cpu: 100m
-      memory: 64Mi
+      cpu: 50m
+      memory: 48Mi
 
 grafana:
   image:
@@ -120,15 +128,25 @@ grafana:
     image:
       registry: quay.m.daocloud.io
       repository: kiwigrid/k8s-sidecar
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+    dashboards:
+      # 只监听本命名空间，避免全集群 watch 增加 API Server 负担
+      searchNamespace: monitoring
   admin:
     existingSecret: grafana-admin
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 96Mi
     limits:
-      cpu: 300m
-      memory: 384Mi
+      cpu: 200m
+      memory: 320Mi
   persistence:
     enabled: true
     storageClassName: local-path
