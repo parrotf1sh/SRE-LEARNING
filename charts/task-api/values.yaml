@@ -11,7 +11,7 @@ image:
   # 腾讯云容器镜像服务（TCR）公开仓库，匿名可拉取
   repository: ccr.ccs.tencentyun.com/sre-learning/task-api
   # 使用不可变的短 SHA tag，避免 dev-latest 被覆盖后节点继续使用旧镜像
-  tag: "dev-c765c1c"
+  tag: "dev-e4a472c"
   pullPolicy: IfNotPresent
 
 # 仅私有仓库需要，创建 docker-registry 类型的 Secret 后填入
