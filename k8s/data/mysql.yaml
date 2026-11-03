@@ -12,8 +12,11 @@ data:
     [mysqld]
     character-set-server = utf8mb4
     collation-server = utf8mb4_unicode_ci
-    innodb_buffer_pool_size = 256M
-    max_connections = 100
+    # 2C4G 单节点：128M 缓冲池足够学习用量，必要时再调大
+    innodb_buffer_pool_size = 128M
+    max_connections = 50
+    # 关闭 performance_schema，省下约 100-200M 内存
+    performance_schema = OFF
 
     [client]
     default-character-set = utf8mb4
@@ -130,10 +133,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 768Mi
+              cpu: 400m
+              memory: 512Mi
       volumes:
         - name: config
           configMap:

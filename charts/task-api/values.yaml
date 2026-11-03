@@ -4,7 +4,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 # 副本数（启用 HPA 后由 HPA 管理）
-replicaCount: 2
+replicaCount: 1
 
 # 镜像配置
 image:
@@ -105,16 +105,18 @@ ingress:
   tls: []
 
 resources:
+  # 2C4G 单节点：单副本 + 低 request，允许突发但不能挤占过多内存
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 50m
+    memory: 64Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 300m
+    memory: 256Mi
 
 autoscaling:
   enabled: false
-  minReplicas: 2
+  # 2C4G 单节点，即使启用 HPA 也从 1 副本起步
+  minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
   # 内存利用率按 requests 计算，Python 应用常驻内存较高，默认不启用
