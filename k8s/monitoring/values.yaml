@@ -1,5 +1,5 @@
 # kube-prometheus-stack values（K3s 单节点 2C4G，镜像走 DaoCloud 公共加速）
-# 已按 2C4G 低配裁剪：关闭 Alertmanager、缩短 Prometheus 保留期、抓取间隔放宽到 60s
+# 已按 2C4G 低配裁剪：Alertmanager 单副本、Grafana 关闭、Prometheus 保留期 3d、抓取间隔 60s
 # 安装前先创建命名空间和 Grafana 密码 Secret：
 #   kubectl create namespace monitoring
 #   kubectl -n monitoring create secret generic grafana-admin \
@@ -79,9 +79,11 @@ prometheus:
     ruleSelectorNilUsesHelmValues: false
 
 alertmanager:
-  # 2C4G 先关闭告警组件；需要告警时改为 true
-  enabled: false
+  # 2C4G 上只跑单副本；默认 emptyDir，重启会丢静默/通知记录，仅用于实验
+  enabled: true
   alertmanagerSpec:
+    replicas: 1
+    retention: 24h
     image:
       registry: quay.m.daocloud.io
       repository: prometheus/alertmanager
@@ -92,6 +94,83 @@ alertmanager:
       limits:
         cpu: 100m
         memory: 128Mi
+
+# 自定义告警规则：应用 RED + 节点资源，避免引入一堆单节点用不上的规则
+additionalPrometheusRulesMap:
+  task-api-rules:
+    groups:
+      - name: task-api
+        rules:
+          - alert: TaskApiDown
+            expr: |
+              up{namespace="task-api"} == 0
+              or
+              absent(up{namespace="task-api"}) == 1
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: task-api target is down
+              description: Prometheus 连续 2 分钟无法抓取 task-api。
+          - alert: TaskApiHighErrorRate
+            expr: |
+              sum(rate(http_requests_total{namespace="task-api",status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{namespace="task-api"}[5m]))
+              > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api 5xx error rate above 5%
+              description: 5 分钟窗口内 5xx 比例超过 5%。
+          - alert: TaskApiHighLatencyP95
+            expr: |
+              histogram_quantile(0.95,
+                sum by (le) (rate(http_request_duration_seconds_bucket{namespace="task-api"}[5m]))
+              ) > 1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api P95 latency above 1s
+              description: P95 请求耗时连续 10 分钟超过 1 秒。
+          - alert: TaskApiPodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total{namespace="task-api"}[10m]) > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api container restarting
+              description: 过去 10 分钟内 task-api 容器重启超过 3 次。
+      - name: node
+        rules:
+          - alert: NodeHighMemoryUsage
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: node memory usage above 90%
+              description: 节点可用内存低于 10%，持续 5 分钟。
+          - alert: NodeHighDiskUsage
+            expr: |
+              (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+                   / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: node root filesystem usage above 85%
+              description: 根分区使用率连续 10 分钟超过 85%。
+          - alert: NodeHighCpuUsage
+            expr: 100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 90
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: node CPU usage above 90%
+              description: 节点 CPU 使用率连续 10 分钟超过 90%。
 
 kube-state-metrics:
   image:
@@ -118,6 +197,8 @@ prometheus-node-exporter:
       memory: 48Mi
 
 grafana:
+  # 2C4G 上暂不运行 Grafana；避免 helm upgrade 又把它拉起来
+  replicas: 0
   # SQLite + RWO PVC：滚动更新会让新旧 Pod 同时挂载同一份数据库导致锁冲突
   # 必须用 Recreate，先停旧 Pod 再起新 Pod
   deploymentStrategy:
