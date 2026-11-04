@@ -1,0 +1,114 @@
+Task-API Helm Chart 部署成功
+
+应用信息：
+  名称: {{ include "task-api.fullname" . }}
+  命名空间: {{ .Release.Namespace }}
+  镜像: {{ include "task-api.image" . }}
+  副本数: {{ if .Values.autoscaling.enabled }}HPA 自动管理（{{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }}）{{ else }}{{ .Values.replicaCount }}{{ end }}
+
+Service 访问：
+  类型: {{ .Values.service.type }}
+  端口: {{ .Values.service.port }}
+  集群内地址: {{ include "task-api.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- if .Values.httpRoute.enabled }}
+
+HTTPRoute：
+  {{- range .Values.httpRoute.hostnames }}
+  - 域名: {{ . }}
+  {{- end }}
+  - 路径匹配:
+  {{- range .Values.httpRoute.rules }}
+    {{- range .matches }}
+    {{- with .path }}
+    - {{ .type }}: {{ .value }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress：
+  {{- range .Values.ingress.hosts }}
+  - {{ .host }}
+    {{- range .paths }}
+    - {{ .path }} -> {{ $.Values.service.port }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- if and (not .Values.httpRoute.enabled) (not .Values.ingress.enabled) }}
+
+外部访问：
+  Ingress 和 HTTPRoute 均未启用，可临时使用端口转发：
+  kubectl port-forward svc/{{ include "task-api.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.serviceMonitor.enabled }}
+
+Prometheus 监控：
+  - ServiceMonitor 已启用
+  - 指标路径: {{ .Values.serviceMonitor.path }}
+  - 抓取间隔: {{ .Values.serviceMonitor.interval }}
+  - 注意：应用需要实际暴露该端点，否则抓取会返回 404
+{{- end }}
+
+{{- if .Values.autoscaling.enabled }}
+
+自动扩缩容（HPA）：
+  - 最小副本数: {{ .Values.autoscaling.minReplicas }}
+  - 最大副本数: {{ .Values.autoscaling.maxReplicas }}
+  {{- with .Values.autoscaling.targetCPUUtilizationPercentage }}
+  - CPU 目标: {{ . }}%
+  {{- end }}
+  {{- with .Values.autoscaling.targetMemoryUtilizationPercentage }}
+  - 内存目标: {{ . }}%
+  {{- end }}
+{{- end }}
+
+重要提醒：
+
+1. 确保已创建所需的 Secret：
+{{- if .Values.secrets.enabled }}
+{{- with .Values.secrets.database.secretName }}
+   - 数据库 Secret: {{ . }}（键：DB_HOST、DB_PORT、DB_USER、DB_PASSWORD、DB_NAME）
+{{- end }}
+{{- with .Values.secrets.redis.secretName }}
+   - Redis Secret: {{ . }}（键：REDIS_NODES）
+{{- end }}
+{{- if or .Values.secrets.database.secretName .Values.secrets.redis.secretName }}
+
+   示例：
+   {{- with .Values.secrets.database.secretName }}
+   kubectl create secret generic {{ . }} \
+     --from-literal=DB_HOST=mysql.default.svc.cluster.local \
+     --from-literal=DB_PORT=3306 \
+     --from-literal=DB_USER=root \
+     --from-literal=DB_PASSWORD='<password>' \
+     --from-literal=DB_NAME=task_api \
+     -n {{ $.Release.Namespace }}
+   {{- end }}
+   {{- with .Values.secrets.redis.secretName }}
+
+   kubectl create secret generic {{ . }} \
+     --from-literal=REDIS_NODES='redis-node-0:6379,redis-node-1:6380' \
+     -n {{ $.Release.Namespace }}
+   {{- end }}
+{{- end }}
+{{- else }}
+   Secret 引用已关闭，应用会使用内置默认连接地址，通常只适用于本地开发。
+{{- end }}
+
+2. Secret 不由本 Chart 管理，修改 Secret 后需要重启 Pod：
+   kubectl rollout restart deployment/{{ include "task-api.fullname" . }} -n {{ .Release.Namespace }}
+
+3. 查看 Pod 状态：
+   kubectl get pods -l app.kubernetes.io/name={{ include "task-api.name" . }} -n {{ .Release.Namespace }}
+
+4. 查看应用日志：
+   kubectl logs -l app.kubernetes.io/name={{ include "task-api.name" . }} -n {{ .Release.Namespace }} -f
+
+5. 测试健康检查：
+   kubectl exec -it deployment/{{ include "task-api.fullname" . }} -n {{ .Release.Namespace }} -- \
+     curl -s http://127.0.0.1:{{ .Values.containerPort }}/health

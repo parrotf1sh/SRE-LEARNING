@@ -1,0 +1,26 @@
+{{- if and .Values.service.nodePort (eq .Values.service.type "ClusterIP") }}
+{{- fail "service.nodePort 仅在 service.type 为 NodePort 或 LoadBalancer 时可用" }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "task-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "task-api.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- with .Values.service.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
+  selector:
+    {{- include "task-api.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,76 @@
+# MiniOps default configuration
+# Environment variables (e.g. MYSQL_ROOT_PASSWORD) override values marked with ${...}
+
+targets:
+  http:
+    - url: "http://localhost:80/health"
+      timeout: 5
+      expected_status: "healthy"
+
+  mysql:
+    - container: "task-api-mysql-master-1"
+      password: "${MYSQL_ROOT_PASSWORD}"  # overridden by env var
+      check_replication: true
+    - container: "task-api-mysql-slave-1"
+      password: "${MYSQL_ROOT_PASSWORD}"
+      check_replication: false
+
+  redis:
+    - { container: "task-api-redis-node-1-1", port: 6379 }
+    - { container: "task-api-redis-node-2-1", port: 6380 }
+    - { container: "task-api-redis-node-3-1", port: 6381 }
+    - { container: "task-api-redis-node-4-1", port: 6382 }
+    - { container: "task-api-redis-node-5-1", port: 6383 }
+    - { container: "task-api-redis-node-6-1", port: 6384 }
+
+  docker:
+    enabled: true
+    name_filter: "task-api"
+
+  system:
+    enabled: true
+    disk_warn: 85
+    disk_crit: 95
+    mem_warn: 85
+    mem_crit: 95
+
+# Alerting configuration
+# Both channels are DISABLED by default. To enable:
+#   1. Set the corresponding environment variables (see comments)
+#   2. Set enabled: true
+alerting:
+  channels:
+    - type: webhook
+      # WEBHOOK_URL: set via environment variable or paste URL below
+      # For 企业微信/钉钉/飞书, also set platform to: wecom | dingtalk | feishu | generic
+      url: "${WEBHOOK_URL}"
+      platform: "generic"
+      enabled: false
+      trigger_on: ["critical"]
+
+    - type: email
+      # SMTP configuration: set via environment variables
+      # SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD
+      smtp_host: "${SMTP_HOST}"
+      smtp_port: 465
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+      recipients: []  # add email addresses here, e.g. ["oncall@example.com"]
+      use_tls: true
+      enabled: false
+      trigger_on: ["warning", "critical"]
+
+# MySQL backup configuration
+backup:
+  mysql:
+    container: "task-api-mysql-master-1"
+    password: "${MYSQL_ROOT_PASSWORD}"
+    backup_dir: "./backups"
+    compress: true
+    retention_days: 7
+
+# Scheduler (daemon mode)
+scheduler:
+  enabled: true
+  interval_seconds: 300  # 5 minutes
+  log_file: "miniops.log"

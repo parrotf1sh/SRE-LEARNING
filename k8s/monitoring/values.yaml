@@ -1,0 +1,241 @@
+# kube-prometheus-stack values（K3s 单节点 2C4G，镜像走 DaoCloud 公共加速）
+# 已按 2C4G 低配裁剪：Alertmanager 单副本、Grafana 关闭、Prometheus 保留期 3d、抓取间隔 60s
+# 安装前先创建命名空间和 Grafana 密码 Secret：
+#   kubectl create namespace monitoring
+#   kubectl -n monitoring create secret generic grafana-admin \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password="$(openssl rand -base64 18)"
+# 安装（国内使用南京大学 GHCR 镜像，chart 校验和与官方一致）：
+#   helm upgrade --install kube-prometheus-stack \
+#     oci://ghcr.nju.edu.cn/prometheus-community/charts/kube-prometheus-stack \
+#     -n monitoring --create-namespace --version 92.17.1 -f k8s/monitoring/values.yaml
+
+crds:
+  enabled: true
+
+# K3s 控制面组件合并进 k3s server，默认不暴露这些指标
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheusOperator:
+  image:
+    registry: quay.m.daocloud.io
+    repository: prometheus-operator/prometheus-operator
+  prometheusConfigReloader:
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus-operator/prometheus-config-reloader
+  admissionWebhooks:
+    patch:
+      image:
+        registry: ghcr.nju.edu.cn
+        repository: jkroepke/kube-webhook-certgen
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
+
+prometheus:
+  prometheusSpec:
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus/prometheus
+    # 单节点只保留 3 天 / 1GB，降低 TSDB 内存与磁盘压力
+    retention: 3d
+    retentionSize: 1GB
+    # 2C4G 上适当放宽抓取频率，减少 CPU 与序列数
+    scrapeInterval: 60s
+    evaluationInterval: 60s
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 400m
+        memory: 640Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            # 已存在的 PVC 不能缩容，保持 5Gi；实际由 retentionSize 控制用量
+            requests:
+              storage: 5Gi
+    # 允许 Prometheus 采集所有命名空间的 ServiceMonitor（含 task-api）
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+alertmanager:
+  # 2C4G 上只跑单副本；默认 emptyDir，重启会丢静默/通知记录，仅用于实验
+  enabled: true
+  alertmanagerSpec:
+    replicas: 1
+    retention: 24h
+    image:
+      registry: quay.m.daocloud.io
+      repository: prometheus/alertmanager
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# 自定义告警规则：应用 RED + 节点资源，避免引入一堆单节点用不上的规则
+additionalPrometheusRulesMap:
+  task-api-rules:
+    groups:
+      - name: task-api
+        rules:
+          - alert: TaskApiDown
+            expr: |
+              up{namespace="task-api"} == 0
+              or
+              absent(up{namespace="task-api"}) == 1
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: task-api target is down
+              description: Prometheus 连续 2 分钟无法抓取 task-api。
+          - alert: TaskApiHighErrorRate
+            expr: |
+              sum(rate(http_requests_total{namespace="task-api",status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{namespace="task-api"}[5m]))
+              > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api 5xx error rate above 5%
+              description: 5 分钟窗口内 5xx 比例超过 5%。
+          - alert: TaskApiHighLatencyP95
+            expr: |
+              histogram_quantile(0.95,
+                sum by (le) (rate(http_request_duration_seconds_bucket{namespace="task-api"}[5m]))
+              ) > 1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api P95 latency above 1s
+              description: P95 请求耗时连续 10 分钟超过 1 秒。
+          - alert: TaskApiPodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total{namespace="task-api"}[10m]) > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: task-api container restarting
+              description: 过去 10 分钟内 task-api 容器重启超过 3 次。
+      - name: node
+        rules:
+          - alert: NodeHighMemoryUsage
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: node memory usage above 90%
+              description: 节点可用内存低于 10%，持续 5 分钟。
+          - alert: NodeHighDiskUsage
+            expr: |
+              (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+                   / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: node root filesystem usage above 85%
+              description: 根分区使用率连续 10 分钟超过 85%。
+          - alert: NodeHighCpuUsage
+            expr: 100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 90
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: node CPU usage above 90%
+              description: 节点 CPU 使用率连续 10 分钟超过 90%。
+
+kube-state-metrics:
+  image:
+    registry: k8s.m.daocloud.io
+    repository: kube-state-metrics/kube-state-metrics
+  resources:
+    requests:
+      cpu: 20m
+      memory: 48Mi
+    limits:
+      cpu: 100m
+      memory: 96Mi
+
+prometheus-node-exporter:
+  image:
+    registry: quay.m.daocloud.io
+    repository: prometheus/node-exporter
+  resources:
+    requests:
+      cpu: 10m
+      memory: 24Mi
+    limits:
+      cpu: 50m
+      memory: 48Mi
+
+grafana:
+  # 2C4G 上暂不运行 Grafana；避免 helm upgrade 又把它拉起来
+  replicas: 0
+  # SQLite + RWO PVC：滚动更新会让新旧 Pod 同时挂载同一份数据库导致锁冲突
+  # 必须用 Recreate，先停旧 Pod 再起新 Pod
+  deploymentStrategy:
+    type: Recreate
+  image:
+    registry: docker.m.daocloud.io
+    repository: grafana/grafana
+  initChownData:
+    image:
+      registry: docker.m.daocloud.io
+      repository: library/busybox
+  sidecar:
+    image:
+      registry: quay.m.daocloud.io
+      repository: kiwigrid/k8s-sidecar
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        # 64Mi 会被 k8s-sidecar 同步 dashboard 时打爆（OOMKilled）
+        memory: 128Mi
+    dashboards:
+      # 只监听本命名空间，避免全集群 watch 增加 API Server 负担
+      searchNamespace: monitoring
+  admin:
+    existingSecret: grafana-admin
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 320Mi
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 1Gi
+  defaultDashboardsTimezone: Asia/Shanghai

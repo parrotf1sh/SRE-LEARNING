@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import settings
+from app.metrics import task_operations_total
 from app.schemas import TaskCreate, TaskResponse, TaskListResponse, CacheMeta
 from app.crud import get_all_tasks, create_task, delete_task
 
@@ -14,8 +18,8 @@ logger = logging.getLogger("task_api.tasks")
 
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
-    status: str | None = None,
-    assignee: str | None = None,
+    status: Optional[str] = None,
+    assignee: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     if status or assignee:
@@ -47,7 +51,12 @@ async def list_tasks(
 
 @router.post("", response_model=TaskResponse, status_code=201)
 async def create(task_in: TaskCreate, db: AsyncSession = Depends(get_db)):
-    task = await create_task(db, task_in)
+    try:
+        task = await create_task(db, task_in)
+    except Exception:
+        task_operations_total.labels(operation="create", result="failure").inc()
+        raise
+    task_operations_total.labels(operation="create", result="success").inc()
     logger.info("Task created: id=%s title=%s", task.id, task.title)
     return TaskResponse.model_validate(task)
 
@@ -56,5 +65,7 @@ async def create(task_in: TaskCreate, db: AsyncSession = Depends(get_db)):
 async def remove(task_id: int, db: AsyncSession = Depends(get_db)):
     deleted = await delete_task(db, task_id)
     if not deleted:
+        task_operations_total.labels(operation="delete", result="not_found").inc()
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    task_operations_total.labels(operation="delete", result="success").inc()
     logger.info("Task deleted: id=%s", task_id)

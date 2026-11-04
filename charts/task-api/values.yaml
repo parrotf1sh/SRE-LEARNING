@@ -1,0 +1,173 @@
+# Task-API Helm Chart 默认配置
+
+nameOverride: ""
+fullnameOverride: ""
+
+# 副本数（启用 HPA 后由 HPA 管理）
+replicaCount: 1
+
+# 镜像配置
+image:
+  # 腾讯云容器镜像服务（TCR）公开仓库，匿名可拉取
+  repository: ccr.ccs.tencentyun.com/sre-learning/task-api
+  # 使用不可变的短 SHA tag，避免 dev-latest 被覆盖后节点继续使用旧镜像
+  tag: "dev-e4a472c"
+  pullPolicy: IfNotPresent
+
+# 仅私有仓库需要，创建 docker-registry 类型的 Secret 后填入
+imagePullSecrets: []
+#  - name: tcr-secret
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # 应用不访问 Kubernetes API，禁止挂载 ServiceAccount token
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 999
+  fsGroupChangePolicy: OnRootMismatch
+
+securityContext:
+  runAsNonRoot: true
+  # 镜像内 appuser 的实际 UID/GID 为 999
+  runAsUser: 999
+  runAsGroup: 999
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# 容器监听端口；修改时需同步调整 args 中的 --port
+containerPort: 8000
+
+service:
+  # 仅集群内访问；如需节点端口，改为 NodePort 并设置 nodePort
+  type: ClusterIP
+  port: 8000
+  # 仅 NodePort/LoadBalancer 生效；K3s 默认允许范围 30000-32767
+  # nodePort: 30080
+  annotations: {}
+
+# 覆盖镜像默认 CMD（run.py 中 reload=True，不适合容器运行）
+command:
+  - uvicorn
+args:
+  - app.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+
+healthCheck:
+  enabled: true
+  # 就绪探针解析该路径响应中的 status 字段；存活探针只检查 TCP 端口
+  path: /health
+  startupFailureThreshold: 30
+  startupPeriodSeconds: 2
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# HTTPRoute 与 Ingress 不能同时启用
+httpRoute:
+  enabled: false
+  # 启用时必须改为真实域名，并确认 Gateway API CRD 已安装
+  hostnames:
+    - task-api.example.com
+  parentRefs:
+    - name: traefik-gateway
+      namespace: default
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters: []
+
+ingress:
+  enabled: false
+  # K3s 默认使用 Traefik；使用 ingress-nginx 时改为 nginx
+  className: traefik
+  annotations: {}
+  hosts:
+    - host: task-api.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  # 2C4G 单节点：单副本 + 低 request，允许突发但不能挤占过多内存
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  # 2C4G 单节点，即使启用 HPA 也从 1 副本起步
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # 内存利用率按 requests 计算，Python 应用常驻内存较高，默认不启用
+  targetMemoryUtilizationPercentage: null
+  customMetrics: []
+  behavior: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+terminationGracePeriodSeconds: 30
+
+# 非敏感环境变量，通过 ConfigMap 注入
+config:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # auto 自动识别单实例/Cluster；也可显式设为 standalone 或 cluster
+  REDIS_MODE: "auto"
+
+# 敏感信息由外部 Secret 提供，Chart 不创建 Secret
+# 数据库 Secret 必需键：DB_HOST、DB_PORT、DB_USER、DB_PASSWORD、DB_NAME
+# Redis Secret 必需键：REDIS_NODES
+secrets:
+  enabled: true
+  database:
+    secretName: task-api-db-secret
+  redis:
+    secretName: task-api-redis-secret
+
+serviceMonitor:
+  # 应用已通过 prometheus-fastapi-instrumentator 暴露 /metrics
+  enabled: true
+  # 与 Prometheus 全局 scrapeInterval 对齐，避免额外抓取压力
+  interval: 60s
+  scrapeTimeout: 10s
+  path: /metrics
+  port: http
+  labels: {}
+  annotations: {}
+  honorLabels: false
+  metricRelabelings: []
+  relabelings: []
+
+# 额外的环境变量，会覆盖 ConfigMap/Secret 中的同名变量
+env: []
+#  - name: CUSTOM_VAR
+#    value: "custom-value"

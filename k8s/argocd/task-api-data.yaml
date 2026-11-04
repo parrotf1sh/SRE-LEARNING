@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: task-api-data
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: task-api
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/parrotf1sh/SRE-LEARNING.git
+    targetRevision: dev
+    path: k8s/data
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: task-api
+  syncPolicy:
+    automated:
+      # 数据资源不自动 prune，避免误删 MySQL/Redis
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

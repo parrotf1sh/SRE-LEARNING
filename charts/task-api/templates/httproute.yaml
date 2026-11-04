@@ -1,0 +1,45 @@
+{{- if and .Values.httpRoute.enabled .Values.ingress.enabled }}
+{{- fail "httpRoute.enabled 与 ingress.enabled 不能同时为 true" }}
+{{- end }}
+{{- if .Values.httpRoute.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1") }}
+{{- fail "httpRoute.enabled=true，但集群未安装 Gateway API CRD（gateway.networking.k8s.io/v1）" }}
+{{- end }}
+{{- if not .Values.httpRoute.hostnames }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.hostnames 不能为空" }}
+{{- end }}
+{{- if not .Values.httpRoute.parentRefs }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.parentRefs 不能为空" }}
+{{- end }}
+{{- if not .Values.httpRoute.rules }}
+{{- fail "httpRoute.enabled=true 时 httpRoute.rules 不能为空" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "task-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "task-api.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
+  hostnames:
+    {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
+  rules:
+    {{- range .Values.httpRoute.rules }}
+    -
+      {{- with .matches }}
+      matches:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .filters }}
+      filters:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "task-api.fullname" $ }}
+          port: {{ $.Values.service.port }}
+          weight: 1
+    {{- end }}
+{{- end }}
