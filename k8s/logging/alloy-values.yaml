@@ -1,0 +1,123 @@
+# Grafana Alloy：K8s 日志采集 DaemonSet
+# 通过 K8s API 读取 Pod 日志（不挂 hostPath，兼容 K3s containerd），推送到 Loki
+#
+# 安装（先安装 Loki，命名空间已存在）：
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm repo update
+#   helm upgrade --install alloy grafana/alloy \
+#     -n logging --version 1.15.0 \
+#     -f k8s/logging/alloy-values.yaml
+#
+# GitHub Pages 访问慢时，先下载 chart 再安装：
+#   curl -LO https://github.com/grafana/helm-charts/releases/download/alloy-1.15.0/alloy-1.15.0.tgz
+#   helm upgrade --install alloy ./alloy-1.15.0.tgz -n logging -f k8s/logging/alloy-values.yaml
+
+fullnameOverride: alloy
+
+crds:
+  # 只使用 loki.source.kubernetes，不需要 PodLogs 等 CRD
+  create: false
+
+image:
+  registry: docker.m.daocloud.io
+  repository: grafana/alloy
+  tag: v1.21.3
+
+configReloader:
+  # 省掉一个 sidecar；ConfigMap 变更时 chart 会更新 checksum 并滚动 DaemonSet
+  enabled: false
+
+alloy:
+  enableReporting: false
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 192Mi
+  configMap:
+    create: true
+    content: |-
+      logging {
+        level  = "warn"
+        format = "logfmt"
+      }
+
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        // 只采集运行中的 Pod，避免已终止容器反复重连
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex         = "Running"
+          action        = "keep"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          regex         = ".+"
+          target_label  = "app"
+        }
+
+        // 排除系统命名空间噪音；需要 CoreDNS/Traefik 日志时从这里删掉 kube-system
+        rule {
+          source_labels = ["namespace"]
+          regex         = "kube-system|kube-public|kube-node-lease"
+          action        = "drop"
+        }
+
+        // 排除 Alloy 自身，避免采集日志的行为再产生日志
+        rule {
+          source_labels = ["namespace", "app"]
+          separator     = "/"
+          regex         = "logging/alloy"
+          action        = "drop"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.local.receiver]
+      }
+
+      loki.write "local" {
+        endpoint {
+          url = "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push"
+        }
+        external_labels = {
+          cluster = "k3s",
+        }
+      }
+
+rbac:
+  create: true
+  # 覆盖 chart 默认 rules，只声明 loki.source.kubernetes 所需权限
+  # （chart 仍会合并 clusterRules 默认值）
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "pods/log", "namespaces"]
+      verbs: ["get", "list", "watch"]
+
+service:
+  enabled: true
